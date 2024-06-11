@@ -1,0 +1,6 @@
+- name: Add masters0 slaves.
+  shell: "echo Redis test"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[0] }}"
+  register: value1
+
+- debug: var=value1

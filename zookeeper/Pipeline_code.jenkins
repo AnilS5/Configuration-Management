@@ -1,0 +1,38 @@
+pipeline {
+    agent {
+        node {
+            label ''
+            customWorkspace ''
+        }
+    }
+    parameters {
+            string(name: 'env', defaultValue: '', description: 'Enter here the environment like acs, dc2, dcs.')
+            string(name: 'clientPort', defaultValue: '', description: 'Zookeeper client port for configuration.')
+            string(name: 'servers', defaultValue: '', description: 'Remote server IPs for zookeeper setup and configuration.')
+	    string(name: 'common_port', defaultValue: '', description: 'Enter common port for Zookeeper.')
+	    string(name: 'id', defaultValue: '', description: 'ID for zookeeper setup and configuration.')
+    }
+        
+    stages {
+        stage('Prepare environment.') {
+            steps {
+                script {
+                    ws('/etc/ansible/roles/zookeeper') {
+                        def PYTHON_HOME = '/usr/bin/'
+                        sh "${PYTHON_HOME}/python zookeeper.py ${params.servers}"
+                    }
+                }
+            }
+        }
+        stage('Zookeeper setup and configuration.') {
+            steps {
+                script {
+                    ws('/etc/ansible/roles') {
+                        def ANSIBLE_HOME='/usr/bin/'
+				sh "${ANSIBLE_HOME}/ansible-playbook zookeeper/site.yml -e clientPort=${params.clientPort} -e env={params.env} common_port=${params.common_port} -e id=${params.id}"
+                    }
+                }
+            }
+        }
+    }
+}

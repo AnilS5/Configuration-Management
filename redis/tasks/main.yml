@@ -1,0 +1,332 @@
+---
+
+- name: Ceate directory on remote host.
+  file:
+    path: "{{ item }}"
+    state: directory
+  with_items:
+    - "{{ dirs_path }}"
+
+- name: Copy all redis dependencies to remote host.
+  copy:
+    src: "{{ local_path.local_src }}"
+    dest: "{{ dirs_path[0] }}"
+
+- name: Uninstall existing redis.
+  command: "dpkg -r redis"
+  become: true
+  become_method: sudo
+  ignore_errors: true
+
+- name: Install redis debian packages.
+  shell: "dpkg --force-confnew -i {{ item }}"
+  become: true
+  become_method: sudo 
+  args:
+    chdir: "{{ dirs_path[0] }}"
+  with_items:
+    - "{{ redis.tools }}"
+    - "{{ redis.sentinel }}"
+    - "{{ redis.server }}"
+
+- name: Modify configuration file.
+  lineinfile:
+    dest: templates/redis-server-m1-port_number.conf
+    regexp: "{{ item.From }}"
+    line: "{{ item.To }}"
+  delegate_to: localhost
+  become: false
+  with_items:
+    - { From: "^pidfile", To: "{{ pidfile }}" }
+    - { From: "^logfile", To: "{{ logfile }}" }
+    - { From: "^cluster-config-file", To: "{{ cluster_config_file }}" }
+    - { From: "^dir", To: "{{ dir }}" }
+
+- name: Copy local file.
+  copy: 
+    src: templates/redis-serverport_number.service
+    dest: templates/redis-server-m1-port_number.service
+  delegate_to: localhost
+  become: false
+
+- name: Modify configuration file.
+  lineinfile:
+    dest: templates/redis-server-m1-port_number.service
+    regexp: "{{ item.From }}"
+    line: "{{ item.To }}"
+  become: false
+  with_items:
+    - { From: "^ExecStart", To: "{{ ExecStart }}" }
+    - { From: "^ReadWriteDirectories1", To: "{{ ReadWriteDirectories1 }}" }
+    - { From: "^ReadWriteDirectories2", To: "{{ ReadWriteDirectories2 }}" }    
+  delegate_to: localhost
+
+- name: Install gem.
+  command: "{{ item }}"
+  become: true
+  become_method: sudo
+  args:
+    chdir: "{{ dirs_path[0] }}"
+  with_items:
+    - "apt install ruby"
+    - "gem install redis"
+    - "gem install --force --local {{ redis.gem }}"
+
+- name: Create directories.
+  file: 
+    path: "{{ redis_logs_dirs.0 }}"
+    state: directory
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[0] }}" 
+  with_sequence: start=0 end=1 stride=1
+
+- file:
+    path: "{{ redis_pid_dirs.0 }}"
+    state: directory
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[0] }}"
+  with_sequence: start=0 end=1 stride=1    
+
+- file:
+    path: "{{ dirs_path[1] }}/{{ item }}"
+    state: directory
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[0] }}"
+  with_items:
+    - "{{ ports.0 }}"
+
+- name: Node creation.
+  copy:
+    src: templates/redis-server-m1-port_number.conf
+    dest: "{{ dirs_path[1] }}/{{ item }}/redis-server-{{ env }}-m1-{{ item }}.conf"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[0] }}"
+  with_items:
+    - "{{ ports.0 }}"
+
+- name: Configure the redis slaves.
+  replace:
+    dest: "{{ dirs_path[1] }}/{{ item }}/redis-server-{{ env }}-m1-{{ item }}.conf"
+    regexp: "port_number"
+    replace: "{{ item }}"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[0] }}"
+  with_items:
+    - "{{ ports.0 }}"
+
+- replace:
+    dest: "{{ dirs_path[1] }}/{{ item }}/redis-server-{{ env }}-m1-{{ item }}.conf"
+    regexp: "host_ip"
+    replace: "{{ hostvars[inventory_hostname].groups.redis[0] }}"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[0] }}"
+  with_items:
+    - "{{ ports.0 }}"
+
+- name: Create services.
+  copy:
+    src: templates/redis-server-m1-port_number.service
+    dest: "/lib/systemd/system/redis-server-{{ env }}-m1-{{ item }}.service"
+  become: true
+  become_method: sudo
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[0] }}"
+  with_items:
+    - "{{ ports.0 }}"
+
+- replace:
+    dest: "/lib/systemd/system/redis-server-{{ env }}-m1-{{ item }}.service"
+    regexp: "port_number"
+    replace: "{{ item }}"
+  become: true
+  become_method: sudo
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[0] }}"
+  with_items:
+    - "{{ ports.0 }}"
+
+- name: Start services.
+  shell: "systemctl start redis-server-{{ env }}-m1-{{ item }}.service"
+  args:
+    chdir: "/lib/systemd/system"
+  become: true
+  become_method: sudo 
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[0] }}"
+  with_items:
+    - "{{ ports.0 }}"
+
+- name: Capture hash.
+  shell: cat "{{ ports.0[0] }}/nodes-{{ env }}-m1-{{ ports.0[0] }}.conf" | head -1 | awk -F ' ' '{print $1}'
+  args:
+    chdir: "{{ dirs_path[1] }}"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[0] }}"
+  register: hash_0
+
+
+- name: Create directories.
+  file: 
+    path: "{{ redis_logs_dirs.1 }}"
+    state: directory
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}" 
+  with_sequence: start=0 end=1 stride=1
+
+- file:
+    path: "{{ redis_pid_dirs.1 }}"
+    state: directory
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  with_sequence: start=0 end=1 stride=1    
+
+- file:
+    path: "{{ dirs_path[1] }}/{{ item }}"
+    state: directory
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  with_items:
+    - "{{ ports.1 }}"
+
+- name: Node creation.
+  copy:
+    src: templates/redis-server-m1-port_number.conf
+    dest: "{{ dirs_path[1] }}/{{ item }}/redis-server-{{ env }}-m1-{{ item }}.conf"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  with_items:
+    - "{{ ports.1 }}"
+
+- name: Configure the redis slaves.
+  replace:
+    dest: "{{ dirs_path[1] }}/{{ item }}/redis-server-{{ env }}-m1-{{ item }}.conf"
+    regexp: "port_number"
+    replace: "{{ item }}"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  with_items:
+    - "{{ ports.1 }}"
+
+- replace:
+    dest: "{{ dirs_path[1] }}/{{ item }}/redis-server-{{ env }}-m1-{{ item }}.conf"
+    regexp: "host_ip"
+    replace: "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  with_items:
+    - "{{ ports.1 }}"
+
+- name: Create services.
+  copy:
+    src: templates/redis-server-m1-port_number.service
+    dest: "/lib/systemd/system/redis-server-{{ env }}-m1-{{ item }}.service"
+  become: true
+  become_method: sudo
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  with_items:
+    - "{{ ports.1 }}"
+
+- replace:
+    dest: "/lib/systemd/system/redis-server-{{ env }}-m1-{{ item }}.service"
+    regexp: "port_number"
+    replace: "{{ item }}"
+  become: true
+  become_method: sudo
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  with_items:
+    - "{{ ports.1 }}"
+
+- name: Start services.
+  shell: "systemctl start redis-server-{{ env }}-m1-{{ item }}.service"
+  args:
+    chdir: "/lib/systemd/system"
+  become: true
+  become_method: sudo 
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  with_items:
+    - "{{ ports.1 }}"
+
+- name: Capture hash.
+  shell: cat "{{ ports.1[0] }}/nodes-{{ env }}-m1-{{ ports.1[0] }}.conf" | head -1 | awk -F ' ' '{print $1}'
+  args:
+    chdir: "{{ dirs_path[1] }}"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  register: hash_1
+
+
+- name: Create directories.
+  file: 
+    path: "{{ redis_logs_dirs.2 }}"
+    state: directory
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}" 
+  with_sequence: start=0 end=1 stride=1
+
+- file:
+    path: "{{ redis_pid_dirs.2 }}"
+    state: directory
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  with_sequence: start=0 end=1 stride=1    
+
+- file:
+    path: "{{ dirs_path[1] }}/{{ item }}"
+    state: directory
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  with_items:
+    - "{{ ports.2 }}"
+
+- name: Node creation.
+  copy:
+    src: templates/redis-server-m1-port_number.conf
+    dest: "{{ dirs_path[1] }}/{{ item }}/redis-server-{{ env }}-m1-{{ item }}.conf"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  with_items:
+    - "{{ ports.2 }}"
+
+- name: Configure the redis slaves.
+  replace:
+    dest: "{{ dirs_path[1] }}/{{ item }}/redis-server-{{ env }}-m1-{{ item }}.conf"
+    regexp: "port_number"
+    replace: "{{ item }}"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  with_items:
+    - "{{ ports.2 }}"
+
+- replace:
+    dest: "{{ dirs_path[1] }}/{{ item }}/redis-server-{{ env }}-m1-{{ item }}.conf"
+    regexp: "host_ip"
+    replace: "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  with_items:
+    - "{{ ports.2 }}"
+
+- name: Create services.
+  copy:
+    src: templates/redis-server-m1-port_number.service
+    dest: "/lib/systemd/system/redis-server-{{ env }}-m1-{{ item }}.service"
+  become: true
+  become_method: sudo
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  with_items:
+    - "{{ ports.2 }}"
+
+- replace:
+    dest: "/lib/systemd/system/redis-server-{{ env }}-m1-{{ item }}.service"
+    regexp: "port_number"
+    replace: "{{ item }}"
+  become: true
+  become_method: sudo
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  with_items:
+    - "{{ ports.2 }}"
+
+- name: Start services.
+  shell: "systemctl start redis-server-{{ env }}-m1-{{ item }}.service"
+  args:
+    chdir: "/lib/systemd/system"
+  become: true
+  become_method: sudo 
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  with_items:
+    - "{{ ports.2 }}"
+
+- name: Capture hash.
+  shell: cat "{{ ports.2[0] }}/nodes-{{ env }}-m1-{{ ports.2[0] }}.conf" | head -1 | awk -F ' ' '{print $1}'
+  args:
+    chdir: "{{ dirs_path[1] }}"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  register: hash_2
+
+- name: Ceate clusetr.
+  shell: "./redis-trib.rb create {{ master }}"
+  args:
+    chdir: "{{ dirs_path[0] }}"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[0] }}"
+  register: check_sha
+  ignore_errors: true
+
+- include: tasks/cluster.yml
+

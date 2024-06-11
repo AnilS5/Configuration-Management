@@ -1,0 +1,47 @@
+---
+roles_path: "/etc/ansible/roles"
+env:
+prompt: 'yes'
+ 
+dirs_path:
+  - "/appserver/redis/"
+  - "/appserver/redis/redis-{{ env }}/"
+  - "/log/redis/redis-{{ env }}/"
+local_path:
+  local_src: "{{ roles_path }}/redis/files/"
+redis:
+  lib: "libjemalloc1*.deb"
+  tools: "redis-tools_*_amd64.deb"
+  sentinel: "redis-sentinel_*_amd64.deb"
+  server: "redis-server_*_amd64.deb"
+  gem: "redis-*.gem"
+pidfile: "pidfile {{ dirs_path[2] }}port_number/redis-server-{{ env }}-m1-port_number/redis-server-{{ env }}-m1-port_number.pid"
+logfile: "logfile {{ dirs_path[2] }}port_number/redis-server-{{ env }}-m1-port_number-logs/redis-server-{{ env }}-m1-port_number.log"
+cluster_config_file: "cluster-config-file {{ dirs_path[1] }}port_number/nodes-{{ env }}-m1-port_number.conf"
+dir: "dir {{ dirs_path[1] }}port_number"
+ExecStart: "ExecStart=/usr/bin/redis-server {{ dirs_path[1] }}port_number/redis-server-{{ env }}-m1-port_number.conf"
+ReadWriteDirectories1: "ReadWriteDirectories={{ dirs_path[2] }}"
+ReadWriteDirectories2: "ReadWriteDirectories={{ dirs_path[1] }}"
+ports: # redis
+  0:  ['7201', '7202'] # redis
+  1:  ['7203', '7204'] # redis
+  2:  ['7205', '7206'] # redis
+portdirs: # redis
+  0: "{{ ports.0[item|int] }}" # redis
+  1: "{{ ports.1[item|int] }}" # redis
+  2: "{{ ports.2[item|int] }}" # redis
+redis_logs_dirs: # redis
+  0: "{{ dirs_path[2] }}/{{ portdirs.0 }}/redis-server-{{ env }}-m1-{{ portdirs.0 }}-logs" # redis
+  1: "{{ dirs_path[2] }}/{{ portdirs.1 }}/redis-server-{{ env }}-m1-{{ portdirs.1 }}-logs" # redis
+  2: "{{ dirs_path[2] }}/{{ portdirs.2 }}/redis-server-{{ env }}-m1-{{ portdirs.2 }}-logs" # redis
+redis_pid_dirs: # redis
+  0: "{{ dirs_path[2] }}/{{ portdirs.0 }}/redis-server-{{ env }}-m1-{{ portdirs.0 }}" # redis
+  1: "{{ dirs_path[2] }}/{{ portdirs.1 }}/redis-server-{{ env }}-m1-{{ portdirs.1 }}" # redis
+  2: "{{ dirs_path[2] }}/{{ portdirs.2 }}/redis-server-{{ env }}-m1-{{ portdirs.2 }}" # redis
+
+master: "192.168.111.11:7201 192.168.111.12:7203 192.168.111.12:7205 " # redis
+
+slave: "192.168.111.11:7202 192.168.111.12:7204 192.168.111.12:7206 " # redis
+masters0: "192.168.111.12:7204 192.168.111.11:7201" # redis
+masters1: "192.168.111.12:7206 192.168.111.12:7203" # redis
+masters2: "192.168.111.11:7202 192.168.111.12:7205" # redis

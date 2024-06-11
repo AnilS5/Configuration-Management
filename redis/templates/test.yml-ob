@@ -1,0 +1,213 @@
+---
+#- set_fact: date_time="{{lookup('pipe','date +%Y%m%d%H%M%S')}}"
+#- set_fact: output="{{hostvars[inventory_hostname].groups.Appservers}}"
+#- name: Necessary kernal files backup.
+#  copy:
+#    src: "{{ item }}"
+#    dest: "{{ item }}-{{ date_time }}"
+#  remote_src: true
+#  with_items:
+#    - "{{ kernal.sys_ctl }}"
+#    - "{{ kernal.ker_ena }}"
+
+- name: Modify kernal parameters. 
+  lineinfile:
+    dest: "{{ kernal.sys_ctl }}"
+    #regexp: '^#net.ipv4.conf.all.log_martians = 1'
+    insertafetr: '^net.ipv4.conf.all.log_martians = 1'
+    line: vm.overcommit_memory = i
+    backup: yes
+
+- lineinfile:
+    path: "{{ kernal.ker_ena }}"
+    regexp: "^always(.*)"
+    insertafter: "always(.*)"
+    line: never
+    backup: yes
+  notify: restart_sysctl
+
+- handlers:
+    - name: restart_sysctl
+      command: "sysctl vm.overcommit_memory=1"
+
+- lineinfile:
+    path: "{{ kernal.rc_local }}"
+    #regexp: '^exit 0'
+    insertbefore: '^exit 0'
+    line: echo never > /sys/kernel/mm/transparent_hugepage/enabled
+
+- name: Ceate directory on remote host.
+  file:
+    path: "{{ item }}"
+    state: directory
+  with_items:
+    - "{{ dirs_path }}"
+
+- name: Copy all redis dependencies to remote host.
+  copy:
+    src: "{{ local_path.local_src }}"
+    dest: "{{ dirs_path[0] }}"
+
+- name: Uninstall existing redis.
+  command: "dpkg -r redis"
+  ignore_errors: true
+
+- name: Install dependecies.
+  shell: "apt-get update && apt-get install {{ item }}"
+  with_items: 
+    - "libjemalloc1"
+  register: shell_output
+
+- debug: var=shell_output.stdout
+
+- name: Run alternate if Install dependencies failed
+  shell: "apt-get -f install"
+  when: "{{ shell_output.stdout }} != true"
+
+- name: Install redis debian packages.
+  shell: "dpkg -i {{ item }}"
+  args:
+    chdir: "{{ dirs_path[0] }}"
+  with_items:
+    - "{{ redis.tools }}"
+    - "{{ redis.sentinel }}"
+    - "{{ redis.server }}"
+  notify: 
+    - Redis service
+
+- handler:
+    - name: Redis service
+      service: 
+        name: redis-server
+        state: started
+      register: redis_status
+
+- debug: re=redis_status.stdout
+
+- name: Modify configuration file.
+  lineinfile:
+    dest: templates/redis-server-m1-port_number.conf
+    regexp: "{{ item.From }}"
+    line: "{{ item.To }}"
+  with_items:
+    - { From: "^pidfile", To: "{{ pidfile }}" }
+    - { From: "^logfile", To: "{{ logfile }}" }
+    - { From: "^cluster-config-file", To: "{{ cluster_config_file }}" }
+    - { From: "^dir", To: "{{ dir }}" }
+  delegate_to: localhost
+
+- name: Copy local file.
+  copy:
+    src: templates/redis-serverport_number.service
+    dest: templates/redis-server-m1-port_number.service
+  delegate_to: localhost
+  become: false
+
+- name: Modify configuration file.
+  lineinfile:
+    dest: templates/redis-server-m1-port_number.service
+    regexp: "{{ item.From }}"
+    line: "{{ item.To }}"
+  with_items:
+    - { From: "^ExecStart", To: "{{ ExecStart }}" }
+    - { From: "^ReadWriteDirectories1", To: "{{ ReadWriteDirectories1 }}" }
+    - { From: "^ReadWriteDirectories2", To: "{{ ReadWriteDirectories2 }}" }
+  delegate_to: localhost
+
+#Redis
+  
+- name: Node creation.
+  templates:
+    src: redis-server-m1-port_number.conf
+    dest: "{{ dirs_path[1] }}/{{ item }}/redis-server-m1-{{ item }}.conf"
+  when: "Appservers == hostvars[inventory_hostname].groups.Appservers[0]"
+  with_items:
+    - "{{ ports.first_ports }}"
+
+- name: Node creation.
+  templates:
+    src: redis-server-m1-port_number.conf
+    dest: "{{ dirs_path[1] }}/{{ item }}/redis-server-m1-{{ item }}.conf"
+  when: "Appservers == hostvars[inventory_hostname].groups.Appservers[1]"
+  with_items:
+    - "{{ ports.second_ports }}"
+
+- name: Configure the redis slaves.
+  replace:
+    dest: "{{ dirs_path[1] }}/{{ item }}/redis-server-m1-{{ item }}.conf"
+    regexp: "port_number"
+    replace: "{{ item }}"
+  when: "Appservers == hostvars[inventory_hostname].groups.Appservers[0]"
+  with_items:
+    - "{{ ports.first_ports }}"
+
+- name: Configure the redis slaves.
+  replace:
+    dest: "{{ dirs_path[1] }}/{{ item }}/redis-server-m1-{{ item }}.conf"
+    regexp: "port_number"
+    replace: "{{ item }}"
+  when: "Appservers == hostvars[inventory_hostname].groups.Appservers[1]"
+  with_items:
+    - "{{ ports.second_ports }}"
+
+- name: Create services.
+  templates:
+    src: redis-server-m1-port_number.service
+    dest: "/lib/systemd/system/redis-server-m1-{{ item }}.service"
+  when: "Appservers == hostvars[inventory_hostname].groups.Appservers[0]"
+  with_items:
+    - "{{ ports_first_ports }}"
+
+- name: Create services.
+  templates:
+    src: redis-server-m1-port_number.service
+    dest: "/lib/systemd/system/redis-server-m1-{{ item }}.service"
+  when: "Appservers == hostvars[inventory_hostname].groups.Appservers[1]"
+  with_items:
+    - "{{ ports_second_ports }}"
+
+- replace:
+    dest: "/lib/systemd/system/redis-server-m1-{{ item }}.service"
+    regexp: "port_number"
+    replace: "{{ item }}"
+  when: "Appservers == hostvars[inventory_hostname].groups.Appservers[0]"
+  with_items:
+    - "{{ ports.first_ports}}"
+
+- replace:
+    dest: "/lib/systemd/system/redis-server-m1-{{ item }}.service"
+    regexp: "host_ip"
+    replace: "{{ item }}"
+  when: "Appservers == hostvars[inventory_hostname].groups.Appservers[0]"
+  with_items:
+    - "{{ output[0] }}"
+
+- replace:
+    dest: "/lib/systemd/system/redis-server-m1-{{ item }}.service"
+    regexp: "port_number"
+    replace: "{{ item }}"
+  when: "Appservers == hostvars[inventory_hostname].groups.Appservers[1]"
+  with_items:
+    - "{{ ports.second_ports }}"
+
+- replace:
+    dest: "/lib/systemd/system/redis-server-m1-{{ item }}.service"
+    regexp: "host_ip"
+    replace: "{{ item }}"
+  when: "Appservers == hostvars[inventory_hostname].groups.Appservers[1]"
+  with_items:
+    - "{{ output[1] }}"
+
+- name: Install gem.
+  command: "{{ item }}"
+  args:
+    chdir: "{{ dirs_path[0] }}"
+  loop:
+    - "apt install ruby"
+    - "gem install redis"
+    - "gem install --force --local {{ redis.gem }}" 
+
+- name: Stop redis service.
+  service:
+    name: redis-server
+    state: stopped

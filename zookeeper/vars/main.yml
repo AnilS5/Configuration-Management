@@ -1,0 +1,13 @@
+---
+
+roles_path: '/etc/ansible/roles'
+
+env: acs
+
+dataDir: '/appserver/zookeeper-{{ env }}'
+
+ZOOKEEPER_HOME: "export ZOOKEEPER_HOME=/appserver/zookeeper-{{ env }}/zookeeper"
+
+JAVA_HOME: "export JAVA_HOME=/backup/softwares/java/jdk8u172-b11"
+
+PATH: "export PATH=$JAVA_HOME/bin:$ZOOKEEPER_HOME/bin:$PATH"

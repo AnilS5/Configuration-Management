@@ -1,0 +1,6 @@
+---
+
+- hosts: zookeeper
+  gather_facts: false
+  roles:
+    - zookeeper

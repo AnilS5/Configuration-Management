@@ -1,0 +1,86 @@
+---
+
+- name: Ceate directory on remote host.
+  file:
+    path: "{{ item }}"
+    state: directory
+  with_items:
+    - "{{ dirs_path }}"
+
+- name: Copy all redis dependencies to remote host.
+  copy:
+    src: "{{ local_path.local_src }}"
+    dest: "{{ dirs_path[0] }}"
+
+- name: Uninstall existing redis.
+  command: "dpkg -r redis"
+  become: true
+  become_method: sudo
+  ignore_errors: true
+
+- name: Install redis debian packages.
+  shell: "dpkg --force-confnew -i {{ item }}"
+  become: true
+  become_method: sudo 
+  args:
+    chdir: "{{ dirs_path[0] }}"
+  with_items:
+    - "{{ redis.tools }}"
+    - "{{ redis.sentinel }}"
+    - "{{ redis.server }}"
+
+- name: Modify configuration file.
+  lineinfile:
+    dest: templates/redis-server-m1-port_number.conf
+    regexp: "{{ item.From }}"
+    line: "{{ item.To }}"
+  delegate_to: localhost
+  become: false
+  with_items:
+    - { From: "^pidfile", To: "{{ pidfile }}" }
+    - { From: "^logfile", To: "{{ logfile }}" }
+    - { From: "^cluster-config-file", To: "{{ cluster_config_file }}" }
+    - { From: "^dir", To: "{{ dir }}" }
+
+- name: Copy local file.
+  copy: 
+    src: templates/redis-serverport_number.service
+    dest: templates/redis-server-m1-port_number.service
+  delegate_to: localhost
+  become: false
+
+- name: Modify configuration file.
+  lineinfile:
+    dest: templates/redis-server-m1-port_number.service
+    regexp: "{{ item.From }}"
+    line: "{{ item.To }}"
+  become: false
+  with_items:
+    - { From: "^ExecStart", To: "{{ ExecStart }}" }
+    - { From: "^ReadWriteDirectories1", To: "{{ ReadWriteDirectories1 }}" }
+    - { From: "^ReadWriteDirectories2", To: "{{ ReadWriteDirectories2 }}" }    
+  delegate_to: localhost
+
+- name: Install gem.
+  command: "{{ item }}"
+  become: true
+  become_method: sudo
+  args:
+    chdir: "{{ dirs_path[0] }}"
+  with_items:
+    - "apt install ruby"
+    - "gem install redis"
+    - "gem install --force --local {{ redis.gem }}"
+
+#Redis
+
+- name: Ceate clusetr.
+  shell: "./redis-trib.rb create {{ master }}"
+  args:
+    chdir: "{{ dirs_path[0] }}"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[0] }}"
+  register: check_sha
+  ignore_errors: true
+
+- include: tasks/cluster.yml
+

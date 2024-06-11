@@ -1,0 +1,36 @@
+pipeline {
+    agent {
+        node {
+            label ''
+            customWorkspace ''
+        }
+    }
+    parameters {
+            string(name: 'env', defaultValue: '', description: 'Enter here the environment like acs, dc2, dcs.')
+            string(name: 'port', defaultValue: '', description: 'Kafka port for configuration.')
+            string(name: 'servers', defaultValue: '', description: 'Remote server IPs for kafka setup and configuration.')
+            string(name: 'zoo_port', defaultValue: '', description: 'Enter common port for Zookeeper.')
+    }   
+    stages {
+        stage('Prepare environment.') {
+            steps {
+                script {
+                    ws('/etc/ansible/roles/kafka') {
+                        def PYTHON_HOME = '/usr/bin/'
+                        sh "${PYTHON_HOME}/python kafka.py ${params.servers}"
+                    }
+                }
+            }
+        }
+        stage('Zookeeper setup and configuration.') {
+            steps {
+                script {
+                    ws('/etc/ansible/roles') {
+                        def ANSIBLE_HOME='/usr/bin/'
+                        sh "${ANSIBLE_HOME}/ansible-playbook kafka/site.yml -e port=${params.port} -e env={params.env} -e zoo_port=${params.zoo_port}"
+                    }
+                }
+            }
+        }
+    }
+}

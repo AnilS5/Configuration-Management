@@ -1,0 +1,9 @@
+---
+
+roles_path: '/etc/ansible/roles'
+
+env: acs
+
+dataDir: '/appserver/kafka/kafka-{{ env }}'
+
+log_dir: 'data-{{ env }}/kafka-logs'

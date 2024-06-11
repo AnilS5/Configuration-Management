@@ -1,0 +1,27 @@
+- name: Add masters0 slaves.
+  shell: "./redis-trib.rb add-node --slave --master-id {{ hash_0.stdout }} {{ masters0 }}"
+  args:
+    chdir: "{{ dirs_path[0] }}"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[0] }}"
+  register: value0
+
+- debug: var=value0
+
+- name: Add masters1 slaves.
+  shell: "./redis-trib.rb add-node --slave --master-id {{ hash_1.stdout }} {{ masters1 }}"
+  args:
+    chdir: "{{ dirs_path[0] }}"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  register: value1
+
+- debug: var=value1
+
+- name: Add masters2 slaves.
+  shell: "./redis-trib.rb add-node --slave --master-id {{ hash_2.stdout }} {{ masters2 }}"
+  args:
+    chdir: "{{ dirs_path[0] }}"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.redis[1] }}"
+  register: value2
+
+- debug: var=value2
+

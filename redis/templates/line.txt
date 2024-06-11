@@ -1,0 +1,8 @@
+- name: Add masters{0} slaves.
+  shell: "./redis-trib.rb add-node --slave --master-id {1} hash_{0}.stdout {2} {1} masters{0} {2}"
+  args:
+    chdir: "{1} dirs_path[0] {2}"
+  when: inventory_hostname == "{1} hostvars[inventory_hostname].groups.redis[{0}] {2}"
+  register: value{0}
+
+- debug: var=value{0}

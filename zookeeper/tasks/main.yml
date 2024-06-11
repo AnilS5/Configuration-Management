@@ -1,0 +1,67 @@
+---
+- name: Prepare environment.
+  replace: 
+    destfile: "{{ roles_path }}/zookeeper/vars/main.yml"
+    regexp: 'env: (.*)'
+    replace: 'env: {{ env }}'
+  with_items:
+    - "{{ env }}"
+  delegate_to: localhost
+
+- file:
+    path: '{{ dataDir }}/{{ item }}'
+    state: directory
+  with_items:
+    - zookeeper-logs
+  register: zoo_path
+
+#- lineinfile:
+#    dest: "{{ lookup( 'env', 'HOME') }}/.bashrc"
+#    line: "{{ item }}"
+#    insertafter: EOF
+#    #when: bash_present.changed == true 
+#  with_items:
+#    - "{{ ZOOKEEPER_HOME }}"
+#    - "{{ JAVA_HOME }}"
+#    - "{{ PATH }}"
+
+- name: Setup and configure Zookeeper.
+  find:
+    paths: '{{ roles_path }}/zookeeper/files/'
+    patterns: '*.gz'
+  delegate_to: localhost
+  register: tar_file
+
+- name: Setup and configure Zookeeper.
+  unarchive:
+    src: '{{ tar_file.files[0].path }}'
+    dest: '{{ dataDir }}'
+#    extra_opts: [--strip-components=1]
+
+- shell: "mv zoo*.cfg zoo.cfg"
+  args:
+    chdir: "{{ dataDir }}/{{ tar_file.files[0].path | basename | splitext | first | splitext | first }}/conf/"
+  ignore_errors: true
+
+- replace:
+    destfile: "{{ dataDir }}/{{ tar_file.files[0].path | basename | splitext | first | splitext | first }}/conf/zoo.cfg"
+    regexp: '^dataDir=(.*)'
+    replace: 'dataDir={{ zoo_path.results[0].path }}'
+
+- replace:
+    destfile: "{{ dataDir }}/{{ tar_file.files[0].path | basename | splitext | first | splitext | first }}/conf/zoo.cfg"
+    regexp: '^clientPort(.*)'
+    replace: 'clientPort={{ clientPort }}'
+
+- shell: "echo {{ (item | int) + (id | int) }} > {{ zoo_path.results[0].path }}/myid"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.zookeeper[ item | int ] }}"
+  with_sequence: start=0 end=2 stride=1
+
+- lineinfile:
+    dest: "{{ dataDir }}/{{ tar_file.files[0].path | basename | splitext | first | splitext | first }}/conf/zoo.cfg"
+    line: "server.{{ (item | int) + (id | int) }}={{ hostvars[inventory_hostname].groups.zookeeper[ item | int ] }}:{{ common_port }}:{{ clientPort }}"
+    insertafter: EOF
+  with_sequence: start=0 end=2 stride=1
+
+- name: Start zookeeper.
+  shell: "{{ dataDir }}/{{ tar_file.files[0].path | basename | splitext | first | splitext | first }}/bin/zkServer.sh start"

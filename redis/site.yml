@@ -1,0 +1,7 @@
+---
+- name: Import redis role.
+  hosts: redis 
+  gather_facts: false
+#  sudo: yes
+  roles:
+    - redis

@@ -1,0 +1,75 @@
+---
+- name: Prepare environment.
+  replace: 
+    destfile: "{{ roles_path }}/kafka/vars/main.yml"
+    regexp: 'env: (.*)'
+    replace: 'env: {{ env }}'
+  with_items:
+    - "{{ env }}"
+  delegate_to: localhost
+
+- file:
+    path: '{{ dataDir }}/{{ item }}'
+    state: directory
+  with_items:
+    - "{{ log_dir }}"
+  register: ka_path
+
+- name: Setup and configure Kafka.
+  find:
+    paths: '{{ roles_path }}/kafka/files/'
+    patterns: '*.tgz'
+  delegate_to: localhost
+  register: tar_file
+
+- name: Setup and configure Kafka.
+  unarchive:
+    src: '{{ tar_file.files[0].path }}'
+    dest: '{{ dataDir }}'
+
+- name: Replace broker id.
+  replace:
+    destfile: "{{ dataDir }}/{{ tar_file.files[0].path | basename | splitext | first }}/config/server.properties"
+    regexp: '^broker.id=(.*)'
+    replace: 'broker.id={{ (item | int ) + (id | int)}}'
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.kafka[ item | int] }}"
+  with_sequence: start=0 end=2 stride=1
+
+- name: Replace listener for kafka.
+  replace:
+    destfile: "{{ dataDir }}/{{ tar_file.files[0].path | basename | splitext | first }}/config/server.properties"
+    regexp: "^#listeners=PLAINTEXT://(.*)"
+    replace: "listeners=PLAINTEXT://{{ hostvars[inventory_hostname].groups.kafka[ item | int ] }}:{{ port }}"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.kafka[ item | int ] }}"
+  with_sequence: start=0 end=2 stride=1
+
+- name: Replace advertised listener.
+  replace:
+    destfile: "{{ dataDir }}/{{ tar_file.files[0].path | basename | splitext | first }}/config/server.properties"
+    regexp: "^#advertised.listeners=PLAINTEXT://(.*)"
+    replace: "advertised.listeners=PLAINTEXT://{{ hostvars[inventory_hostname].groups.kafka[ item | int ] }}:{{ port }}"
+  when: inventory_hostname == "{{ hostvars[inventory_hostname].groups.kafka[ item | int ] }}"
+  with_sequence: start=0 end=2 stride=1
+
+- name: Replace num of partitions.
+  replace: 
+    destfile: "{{ dataDir }}/{{ tar_file.files[0].path | basename | splitext | first }}/config/server.properties"
+    regexp: '^num.partitions=(.*)'
+    replace: 'num.partitions=3'
+
+- name: Add zookeeper hosts.
+  replace:
+    destfile: "{{ dataDir }}/{{ tar_file.files[0].path | basename | splitext | first }}/config/server.properties"
+    regexp: '^zookeeper.connect=(.*)'
+    replace: "zookeeper.connect={{ groups['zookeeper'][0] }}:{{ zoo_port }} {{ groups['zookeeper'][1] }}:{{ zoo_port }} {{ groups['zookeeper'][2] }}:{{ zoo_port }}"
+
+- name: Add logs directory.
+  replace:
+    destfile: "{{ dataDir }}/{{ tar_file.files[0].path | basename | splitext | first }}/config/server.properties"
+    regexp: '^log.dirs=(.*)'
+    replace: 'log.dirs={{ ka_path.results[0].path }}'
+ 
+- name: Start kafka.
+  command: "bin/kafka-server-start.sh config/server.properties"
+  args:
+    - chdir: "{{ dataDir}}/{{ tar_file.files[0].path | basename | splitext | first }}"
